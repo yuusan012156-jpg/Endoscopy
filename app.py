@@ -48,7 +48,8 @@ if 'history' not in st.session_state: st.session_state.history = []
 if 'page' not in st.session_state: st.session_state.page = "🏠 ホーム"
 if 'quiz_started' not in st.session_state: st.session_state.quiz_started = False
 if 'is_paused' not in st.session_state: st.session_state.is_paused = False
-if 'elapsed_time' not in st.session_state: st.session_state.elapsed_time = 0 # 蓄積された経過時間
+if 'elapsed_time' not in st.session_state: st.session_state.elapsed_time = 0 
+if 'start_timestamp' not in st.session_state: st.session_state.start_timestamp = time.time()
 
 # --- 3. クイズ開始関数 ---
 def start_quiz(q_count, mode, target_cat=None):
@@ -90,8 +91,8 @@ def start_quiz(q_count, mode, target_cat=None):
     st.session_state.quiz_started = True
     st.session_state.is_paused = False
     st.session_state.page = "🩺 模擬テスト"
-    st.session_state.elapsed_time = 0 # 時間をリセット
-    st.session_state.start_timestamp = time.time() # 開始時刻を記録
+    st.session_state.elapsed_time = 0 
+    st.session_state.start_timestamp = time.time()
 
 # --- 4. サイドバーと同期 ---
 st.sidebar.markdown("### 🩺 内視鏡認定技師\n### 試験対策システム")
@@ -102,7 +103,6 @@ current_sel = st.sidebar.radio("メニュー", options, index=options.index(st.s
 
 if current_sel != st.session_state.page:
     if st.session_state.page == "🩺 模擬テスト":
-        # 移動時に経過時間を保存
         st.session_state.elapsed_time += (time.time() - st.session_state.start_timestamp)
         st.session_state.is_paused = True
     st.session_state.page = current_sel
@@ -118,7 +118,7 @@ if st.session_state.page == "🏠 ホーム":
         st.warning(f"⚠️ テストが第 {st.session_state.idx + 1} 問で中断されています。")
         c1, c2 = st.columns(2)
         if c1.button("▶️ 続きから再開する", use_container_width=True):
-            st.session_state.start_timestamp = time.time() # 再開時刻をセット
+            st.session_state.start_timestamp = time.time() 
             st.session_state.page = "🩺 模擬テスト"; st.rerun()
         if c2.button("🗑️ 破棄して新しく始める", use_container_width=True):
             st.session_state.is_paused = False; st.session_state.quiz_started = False; st.rerun()
@@ -135,11 +135,9 @@ if st.session_state.page == "🏠 ホーム":
                 start_quiz(q_count, mode, target_cat); st.rerun()
 
 elif st.session_state.page == "🩺 模擬テスト":
-    # 現在の総経過時間を計算
     total_sec = st.session_state.elapsed_time + (time.time() - st.session_state.start_timestamp)
     m, s = divmod(int(total_sec), 60)
     
-    # ヘッダーに経過時間を表示
     st.subheader(f"⏱️ 経過時間 {m:02d}:{s:02d} | 問題 {st.session_state.idx + 1} / {len(st.session_state.selected_questions)}")
     
     if st.button("⬅️ 一時中断してホームに戻る"):
@@ -170,12 +168,19 @@ elif st.session_state.page == "🩺 模擬テスト":
         st.markdown(f"**【解説】**\n{q['explanation']}")
         
         if st.button("次の問題へ", use_container_width=True):
-            st.session_state.history.append({"cat": q['category'], "correct": is_ok, "q": q['question']})
+            # 修正ポイント1: 履歴に保存するデータを詳細化
+            st.session_state.history.append({
+                "cat": q['category'], 
+                "correct": is_ok, 
+                "q": q['question'],
+                "options": "\n".join(q['display_options']), 
+                "answer": q['correct_labels'],
+                "explanation": q['explanation']
+            })
             if st.session_state.idx + 1 < len(st.session_state.selected_questions):
                 st.session_state.idx += 1; st.session_state.show_answer = False
             else:
                 st.balloons()
-                # 最終時間を確定
                 st.session_state.final_time = total_sec
                 st.session_state.quiz_started = False
                 st.session_state.page = "📊 成績・習熟度"
@@ -192,5 +197,19 @@ elif st.session_state.page == "📊 成績・習熟度":
         c1, c2 = st.columns(2)
         with c1: st.subheader("分野別正解率 (%)"); st.bar_chart(h_df.groupby('cat')['correct'].mean() * 100)
         with c2: st.subheader("学習回数"); st.bar_chart(h_df.groupby('cat')['q'].count())
-        st.subheader("🚩 最近間違えた問題")
-        st.table(h_df[h_df['correct'] == False][['cat', 'q']].tail(10))
+        
+        st.divider()
+        st.subheader("🚩 最近間違えた問題（復習用）")
+
+        # 修正ポイント2: テーブル表示から展開式（Expander）表示に変更
+        wrong_df = h_df[h_df['correct'] == False].tail(10)
+        
+        if wrong_df.empty:
+            st.success("素晴らしい！最近間違えた問題はありません。")
+        else:
+            for i, row in wrong_df.iterrows():
+                with st.expander(f"【{row['cat']}】 {row['q'][:40]}..."):
+                    st.markdown(f"**問題:**\n{row['q']}")
+                    st.markdown(f"**選択肢:**\n{row['options']}")
+                    st.error(f"**正解:** {row['answer']}")
+                    st.info(f"**【解説】**\n{row['explanation']}")
